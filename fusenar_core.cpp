@@ -47,11 +47,11 @@ int fusenar_redirect_readdir(string path, void* buf, fuse_fill_dir_t filler) {
 int fusenar_readdir(const char* path_in, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi) {
     int retstat = 0;
     struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
-    printf("root dir %s\n",fusenar_data->rootdir);
+    cout << green << "root dir " << fusenar_data->rootdir << reset << endl;
     string path_buffer1, path_buffer2;
     string path = path_in;
 
-    printf("fusenar_readdir(path=\"%s\", buf=0x%p, filler=0x%p, offset=%ld, fi=0x%p)\n",path_in,buf,filler,offset,fi);
+    printf("fusenar_readdir(path=\"%s\", fi=0x%p)\n",path_in,fi);
 
     if (path[0] != '/') {
         printf("error, path must begin with /\n");
@@ -117,7 +117,7 @@ int fusenar_getattr(const char* path_in, struct stat* statbuf) {
     string path = path_in;
     struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
 
-    //cout << red << __func__ << " " << path << reset << endl;
+    cout << red << __func__ << " " << path << reset << endl;
 
     memset(statbuf, 0, sizeof(struct stat));
 
@@ -125,10 +125,18 @@ int fusenar_getattr(const char* path_in, struct stat* statbuf) {
         size_t firstslash = path.find("/",1);
         if (firstslash == string::npos) firstslash = path.size();
         string name = path.substr(1,firstslash-1);
+        cout << "name=" << name << endl;
+
         string narpath = find_nar(name);
+        cout << "narpath=" << narpath << endl;
+
         string cache_path = string(fusenar_data->cachedir) + "/" + name;
-        string absolute_path = cache_path + "/" + path.substr(firstslash);
-        //cout << green << "checking cache for " << absolute_path << reset << endl;
+        cout << "numbers" << firstslash << " " << path.size() << endl;
+        string absolute_path = cache_path;
+        if (path.size() > firstslash) {
+            absolute_path = absolute_path + "/" + path.substr(firstslash);
+        }
+        cout << green << "checking cache for " << absolute_path << reset << endl;
         struct stat statbuf2;
         if (lstat(absolute_path.c_str(),&statbuf2) == 0) {
             statbuf->st_mode = statbuf2.st_mode;
@@ -179,7 +187,9 @@ int fusenar_open(const char* path_in, struct fuse_file_info* fi) {
     string name = path.substr(1,firstslash-1);
     string narpath = find_nar(name);
     string cache_path = string(fusenar_data->cachedir) + "/" + name;
-    string absolute_path = cache_path + "/" + path.substr(firstslash);
+
+    string absolute_path = cache_path;
+    if (path.size() > firstslash) absolute_path = absolute_path + "/" + path.substr(firstslash);
 
     cout << green << "checking cache for " << absolute_path << reset << endl;
 

@@ -87,7 +87,7 @@ public:
         string target = root + path;
         currentFile = fopen(target.c_str(), "w");
         if (!currentFile) throw OpenFail();
-        cout << "making " << target << " " << currentFile << endl;
+        cout << "making " << target << endl;
         isExec = false;
     }
     void isExecutable() override {
@@ -96,11 +96,11 @@ public:
     }
     void preallocateContents(unsigned long long size) override {
         ftruncate(fileno(currentFile), size);
-        cout << "size set to" << size << endl;
+        cout << "size set to " << size << endl;
         bytes_remaining = size;
     }
     void receiveContents(unsigned char * data, unsigned int len) override {
-        cout << len << "bytes added" << endl;
+        cout << len << " bytes added" << endl;
         fwrite(data,len,1,currentFile);
         bytes_remaining = bytes_remaining - len;
         if (bytes_remaining == 0) {

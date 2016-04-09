@@ -10,3 +10,5 @@ install: fusenar
 
 %.o: %.c
 	gcc ${CFLAGS} -o $@ -c $<
+%.o: %.cpp
+	g++ ${CPPFLAGS} -o $@ -c $<
