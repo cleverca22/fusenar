@@ -1,4 +1,4 @@
-{ stdenv, inputs, nix }:
+{ stdenv, files, nix }:
 
 stdenv.mkDerivation {
   name = "data";
@@ -6,7 +6,7 @@ stdenv.mkDerivation {
   unpackPhase = "true";
   installPhase = ''
     mkdir $out
-    nix-store --dump ${inputs} > $out/$(basename ${inputs}).nar
-    nix-store --dump ${inputs.file} > $out/$(basename ${inputs.file}).nar
+    export NIX_REMOTE=daemon
+    for x in $(nix-store -qR --readonly-mode ${stdenv.lib.concatStringsSep " " files}); do nix-store --dump $x > $out/$(basename $x).nar;done
   '';
 }

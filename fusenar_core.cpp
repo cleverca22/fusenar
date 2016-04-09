@@ -5,6 +5,7 @@
 #include <string.h>
 #include <string>
 #include <iostream>
+#include <sstream>
 
 #include <fuse.h>
 
@@ -28,26 +29,13 @@ string find_nar(string prefix) {
     if (stat(output.c_str(),&statbuf2) == 0) {
         return output;
     } else {
-        return NULL;
+        return "";
     }
 }
 
-int fusenar_redirect_readdir(string path, void* buf, fuse_fill_dir_t filler) {
-    cout << "listing " << path << endl;
-    DIR* dir = opendir(path.c_str());
-    if (!dir) return -ENOENT;
-    struct dirent* dp;
-    while ( (dp = readdir(dir)) != NULL) {
-        cout << "found " << dp->d_name << endl;
-        filler(buf,dp->d_name,NULL,0);
-    }
-    closedir(dir);
-    return 0;
-}
 int fusenar_readdir(const char* path_in, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi) {
     int retstat = 0;
     struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
-    cout << green << "root dir " << fusenar_data->rootdir << reset << endl;
     string path_buffer1, path_buffer2;
     string path = path_in;
 
@@ -69,12 +57,12 @@ int fusenar_readdir(const char* path_in, void* buf, fuse_fill_dir_t filler, off_
         filler(buf,"..",NULL,0);
         struct dirent* dp;
         while ( (dp = readdir(dir)) != NULL) {
-            printf("found %s\n",dp->d_name);
+            //printf("found %s\n",dp->d_name);
             string entry = dp->d_name;
             size_t pos = entry.find(".nar");
             if ( (entry == ".") || (entry == "..")) {
             } else if ( entry.size() - 4 == pos) {
-                printf("its a nar file\n");
+                //printf("its a nar file\n");
                 filler(buf,entry.substr(0,pos).c_str(),NULL,0);
             }
         }
@@ -85,26 +73,14 @@ int fusenar_readdir(const char* path_in, void* buf, fuse_fill_dir_t filler, off_
     if (firstslash == string::npos) firstslash = path.size();
     string name = path.substr(1,firstslash-1);
     if (name.size() > 32) {
-        cout << red << "checking cache for " << name << reset << endl;
-        string cache_path = string(fusenar_data->cachedir) + "/" + name;
-        struct stat statbuf2;
-        if (stat(cache_path.c_str(),&statbuf2) == 0) {
-            return fusenar_redirect_readdir(cache_path + "/" + path.substr(firstslash), buf, filler);
-        }
-        cout << "finding nar for " << name << endl;
-        path_buffer2 = find_nar(name);
-        if (path_buffer2.size() > 0) {
-            //filler(buf,".",NULL,0);
-            //filler(buf,"..",NULL,0);
+        NarHandle* handle = open_nar_simple(name);
+        assert(handle);
 
-            if (unpack_nar(path_buffer2, cache_path) == 0) {
-                return fusenar_redirect_readdir(cache_path + "/" + path.substr(firstslash), buf, filler);
-            } else {
-                printf("failure to unpack nar\n");
-                return -ENOENT;
-            }
-            return retstat;
-        }
+        string remainder = path.substr(firstslash);
+        filler(buf,".",NULL,0);
+        filler(buf,"..",NULL,0);
+        handle->readdir(remainder, buf, filler);
+        return 0;
     }
     if (path != "/") return -ENOENT;
 
@@ -117,26 +93,25 @@ int fusenar_getattr(const char* path_in, struct stat* statbuf) {
     string path = path_in;
     struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
 
-    cout << red << __func__ << " " << path << reset << endl;
-
     memset(statbuf, 0, sizeof(struct stat));
 
     if (path.size() > 32) {
         size_t firstslash = path.find("/",1);
         if (firstslash == string::npos) firstslash = path.size();
         string name = path.substr(1,firstslash-1);
-        cout << "name=" << name << endl;
+        NarHandle* handle = open_nar_simple(name);
+        if (!handle) return -ENOENT;
+
+        string remainder = path.substr(firstslash);
+        return handle->getattr(remainder, statbuf);
 
         string narpath = find_nar(name);
-        cout << "narpath=" << narpath << endl;
-
         string cache_path = string(fusenar_data->cachedir) + "/" + name;
-        cout << "numbers" << firstslash << " " << path.size() << endl;
         string absolute_path = cache_path;
         if (path.size() > firstslash) {
             absolute_path = absolute_path + "/" + path.substr(firstslash);
         }
-        cout << green << "checking cache for " << absolute_path << reset << endl;
+        //cout << green << "3checking cache for " << absolute_path << reset << endl;
         struct stat statbuf2;
         if (lstat(absolute_path.c_str(),&statbuf2) == 0) {
             statbuf->st_mode = statbuf2.st_mode;
@@ -178,42 +153,44 @@ int fusenar_getattr(const char* path_in, struct stat* statbuf) {
 }
 
 int fusenar_open(const char* path_in, struct fuse_file_info* fi) {
-    struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
     int retstat = 0;
-    int fd;
     string path = path_in;
     size_t firstslash = path.find("/",1);
     if (firstslash == string::npos) firstslash = path.size();
     string name = path.substr(1,firstslash-1);
-    string narpath = find_nar(name);
-    string cache_path = string(fusenar_data->cachedir) + "/" + name;
+    NarHandle* handle = open_nar_simple(name);
+    assert(handle);
 
-    string absolute_path = cache_path;
-    if (path.size() > firstslash) absolute_path = absolute_path + "/" + path.substr(firstslash);
-
-    cout << green << "checking cache for " << absolute_path << reset << endl;
-
-    fd = open(absolute_path.c_str(),fi->flags);
-    if (fd < 0) retstat = -errno;
-
-    fi->fh = fd;
-    
-    return retstat;
+    string remainder = path.substr(firstslash);
+    FileHandle* fh;
+    retstat = handle->open(remainder, &fh);
+    if (retstat == 0) {
+        fi->fh = (uint64_t)fh;
+        return 0;
+    } else return retstat;
 }
 
 int fusenar_read(const char* path, char* buf, size_t size, off_t offset, struct fuse_file_info *fi) {
-    int retstat = 0;
+    FileHandle* fh = (FileHandle*)fi->fh;
 
-    retstat = pread(fi->fh, buf, size, offset);
-    if (retstat < 0) retstat = -errno;
-
-    return retstat;
+    return fh->pread(buf, size, offset);
 }
-int fusenar_readlink(const char* path, char* link, size_t size) {
-    struct fusenar_state* fusenar_data = (struct fusenar_state*)fuse_get_context()->private_data;
-    printf("fusenar_readlink %s %s %d\n",path,link,(int)size);
-    ssize_t result = readlink( (string(fusenar_data->cachedir) + path).c_str(), link, size);
-    if (result == -1) return -errno;
-    link[result] = 0;
+
+int fusenar_release(const char* path, struct fuse_file_info *fi) {
+    FileHandle* fh = (FileHandle*)fi->fh;
+
+    delete fh;
     return 0;
+}
+
+int fusenar_readlink(const char* path_in, char* link, size_t size) {
+    string path = path_in;
+    size_t firstslash = path.find("/",1);
+    if (firstslash == string::npos) firstslash = path.size();
+    string name = path.substr(1,firstslash-1);
+    NarHandle* handle = open_nar_simple(name);
+    assert(handle);
+
+    string remainder = path.substr(firstslash);
+    return handle->readlink(remainder, link, size);
 }

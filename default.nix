@@ -3,5 +3,7 @@
 stdenv.mkDerivation {
   name = "fusenar";
   src = ./.;
+  enableParallelBuilding = true;
+  dontStrip = true;
   buildInputs = [ fuse nix boost termcolor ];
 }

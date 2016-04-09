@@ -11,5 +11,8 @@ stdenv.mkDerivation {
     ln -sv file $out/link
     echo file3 > $file
     #ln -sv /dev/null $link
+    echo #!/bin/sh > $out/script
+    echo 'echo hello world' >> $out/script
+    chmod +x $out/script
   '';
 }
